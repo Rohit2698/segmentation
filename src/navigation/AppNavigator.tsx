@@ -2,9 +2,6 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import CameraScreen from '../screens/Camera/Index';
-import HomeScreen from '../screens/Home/Index';
-import MacroScanScreen from '../screens/MacroScan/Index';
-import SectionsScreen from '../screens/Sections/Index';
 import SettingsScreen from '../screens/Settings/Index';
 
 export type RootTabParamList = {
@@ -57,33 +54,7 @@ export default function AppNavigator() {
             headerShown: false,
           }} 
         />
-        <Tab.Screen 
-          name="Home" 
-          component={HomeScreen} 
-          options={{ 
-            title: 'Home',
-            tabBarLabel: 'Home',
-            tabBarIcon: EmptyIcon,
-          }} 
-        />
-        <Tab.Screen 
-          name="MacroScan" 
-          component={MacroScanScreen} 
-          options={{ 
-            title: 'Gallery Scan',
-            tabBarLabel: 'Gallery',
-            tabBarIcon: EmptyIcon,
-          }} 
-        />
-        <Tab.Screen 
-          name="Sections" 
-          component={SectionsScreen} 
-          options={{ 
-            title: 'Available Sections',
-            tabBarLabel: 'Models',
-            tabBarIcon: EmptyIcon,
-          }} 
-        />
+        
         <Tab.Screen 
           name="Settings" 
           component={SettingsScreen} 

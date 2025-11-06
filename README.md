@@ -86,6 +86,50 @@ You've successfully run and modified your React Native App. :partying_face:
 
 If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
 
+## Distributing an Android build to testers
+
+You can generate an installable APK (or an App Bundle AAB) without opening Android Studio.
+
+### Prerequisites
+- Android SDK + platform tools installed (same as you need for `yarn android`).
+- Java 17+ (React Native 0.82 defaults; use `java -version` to confirm).
+
+### Build a release APK (recommended for sharing)
+
+```sh
+# Using Yarn
+yarn apk:release
+
+# Using npm
+npm run apk:release
+```
+
+The script will run the Gradle task and copy the artifact to `dist/` with a timestamped filename like:
+
+```
+dist/segmentatioa-v0.0.1-release-20250101T120000.apk
+```
+
+### Build a debug APK (if you need JS debugging enabled)
+
+```sh
+yarn apk:debug
+```
+
+### Build an App Bundle (Play Store / advanced distribution)
+
+```sh
+yarn aab
+```
+
+### Output location
+All generated artifacts are collected in `dist/`. You can safely delete old files there.
+
+### Notes
+- Current release build uses the debug keystore (see `android/app/build.gradle`). For production, generate a proper release keystore and update `signingConfigs.release`.
+- If testers see an install blocked message, they need to enable installation from unknown sources.
+- No code shrinking (ProGuard/R8) is enabled by default (`enableProguardInReleaseBuilds = false`). Enable it before production distribution.
+
 # Learn More
 
 To learn more about React Native, take a look at the following resources:

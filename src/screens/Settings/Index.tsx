@@ -10,9 +10,7 @@ type ModelPackage = {
 };
 
 const MODEL_PACKAGES: ModelPackage[] = [
-  { id: '1', name: 'Macro Scan Model', file: 'yolo.tflite', size: '12.4 MB', installed: true },
-  { id: '2', name: 'Brachial Plexus Model', file: 'brachial_plexus.tflite', size: '18.7 MB', installed: false },
-  { id: '3', name: 'Human Part Segmentation', file: 'humanpart_seg_float16.tflite', size: '24.1 MB', installed: false },
+  { id: '3', name: 'Human Part Segmentation', file: 'humanpart_seg_float16.tflite', size: '24.1 MB', installed: true },
 ];
 
 export default function SettingsScreen() {

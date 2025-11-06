@@ -5,48 +5,8 @@ import { initialize, detect } from '../../native/yolo';
 import { useDetectionStore } from '../../store/detectionStore';
 import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import RNFS from 'react-native-fs';
+import { IS_TEST, LABEL_ASSET, MOCK_RESULTS, MODEL_ASSET } from './util';
 
-const MODEL_ASSET = 'models/yolo.tflite';
-const LABEL_ASSET: string | undefined = undefined;
-
-/**
- * Test mode configuration
- * Set IS_TEST = true to test UI without running actual TFLite model
- * - Skips model initialization check
- * - Returns mock detection results after simulated delay
- * - Useful for UI development and testing without model file
- * 
- * Set IS_TEST = false for production (real model detection)
- */
-const IS_TEST = false;
-
-// Mock data for testing UI
-const MOCK_RESULTS = [
-  {
-    box: {
-      x1: 0.2, y1: 0.15, x2: 0.5, y2: 0.4,
-      cx: 0.35, cy: 0.275, w: 0.3, h: 0.25,
-      cnf: 0.92, cls: 0, clsName: 'Lateral Cord',
-    },
-    mask: [],
-  },
-  {
-    box: {
-      x1: 0.5, y1: 0.3, x2: 0.75, y2: 0.6,
-      cx: 0.625, cy: 0.45, w: 0.25, h: 0.3,
-      cnf: 0.87, cls: 1, clsName: 'Axillary Nerve',
-    },
-    mask: [],
-  },
-  {
-    box: {
-      x1: 0.15, y1: 0.5, x2: 0.4, y2: 0.8,
-      cx: 0.275, cy: 0.65, w: 0.25, h: 0.3,
-      cnf: 0.81, cls: 2, clsName: 'Median Nerve',
-    },
-    mask: [],
-  },
-];
 
 export default function CameraScreen() {
   const { height } = Dimensions.get('window');

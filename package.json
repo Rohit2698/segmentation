@@ -7,7 +7,11 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "apk": "node scripts/build-android-apk.js",
+    "apk:release": "node scripts/build-android-apk.js --variant=release",
+    "apk:debug": "node scripts/build-android-apk.js --variant=debug",
+    "aab": "node scripts/build-android-apk.js --variant=release --aab"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.82.1",
