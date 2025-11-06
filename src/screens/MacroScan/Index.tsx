@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Button, Dimensions, Image, Platform, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Image, Platform, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { initialize, detect } from '../../native/yolo';
 import { useDetectionStore } from '../../store/detectionStore';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
-import Svg, { Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { PERMISSIONS, RESULTS, check, request, openSettings } from 'react-native-permissions';
 import RNFS from 'react-native-fs';
 
@@ -14,8 +14,8 @@ const LABEL_ASSET: string | undefined = undefined;
 
 export default function MacroScanScreen() {
   const { width } = Dimensions.get('window');
-  const previewWidth = width;
-  const previewHeight = Math.round((width * 4) / 3);
+  const previewWidth = width - 32;
+  const previewHeight = Math.round((previewWidth * 4) / 3);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [initReady, setInitReady] = useState<boolean>(false);
   const { loading, results, setLoading, setResponse, clear } = useDetectionStore();
@@ -85,6 +85,21 @@ export default function MacroScanScreen() {
     return uri;
   }, []);
 
+  const performDetection = useCallback(async (path: string) => {
+    if (!initReady) return;
+    setLoading(true);
+    console.log('Starting detection for imagePath:', path);
+    try {
+      const r = await detect(path);
+      console.log('Detection result:', r);
+      setResponse(r);
+    } catch (e) {
+      console.warn('detect error', e);
+      Alert.alert('Detection Error', 'Failed to perform detection. Please try again.');
+      setLoading(false);
+    }
+  }, [initReady, setLoading, setResponse]);
+
   const onPick = useCallback(async () => {
     clear();
     if (Platform.OS === 'android') {
@@ -106,7 +121,9 @@ export default function MacroScanScreen() {
       return;
     }
     setImagePath(path);
-  }, [clear, ensureGalleryPermission, resolveLocalPath]);
+    // Auto-detect after picking
+    performDetection(path);
+  }, [clear, ensureGalleryPermission, resolveLocalPath, performDetection]);
 
   const onCapture = useCallback(async () => {
     clear();
@@ -130,8 +147,6 @@ export default function MacroScanScreen() {
     }
 
   const res = await launchCamera({ mediaType: 'photo', cameraType: 'back', saveToPhotos: true });
-    // Basic diagnostics if nothing happens
-  // Debug: output camera result
   console.log('launchCamera result:', res);
     if (res.didCancel) {
       return;
@@ -151,46 +166,37 @@ export default function MacroScanScreen() {
       return;
     }
     setImagePath(path);
-  }, [clear, resolveLocalPath]);
-
-  const onDetect = useCallback(async () => {
-    if (!imagePath) return;
-    if (!initReady) {
-      Alert.alert(
-        'Model not ready',
-        'Please add your model to android/app/src/main/assets/models/yolo.tflite and restart the app.'
-      );
-      return;
-    }
-    setLoading(true);
-    console.log('Starting detection for imagePath:', imagePath);
-    try {
-      const r = await detect(imagePath);
-      console.log('Detection result:', r);
-      setResponse(r);
-    } catch (e) {
-      console.warn('detect error', e);
-      setLoading(false);
-    }
-  }, [imagePath, initReady, setLoading, setResponse]);
+    // Auto-detect after capture
+    performDetection(path);
+  }, [clear, resolveLocalPath, performDetection]);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle={'dark-content'} />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>YOLO Instance Segmentation (RN)</Text>
-  <View style={styles.sp8} />
-        <View style={styles.row}>
-          <Button title="Capture" onPress={onCapture} />
+        <Text style={styles.title}>📸 Macro Scan</Text>
+        <Text style={styles.subtitle}>Capture or select an image to detect objects</Text>
+        <View style={styles.sp12} />
+        
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.primaryButton} onPress={onCapture} activeOpacity={0.8}>
+            <Text style={styles.buttonText}>📷 Capture</Text>
+          </TouchableOpacity>
           <View style={styles.sp12w} />
-          <Button title="Gallery" onPress={onPick} />
-          <View style={styles.sp12w} />
-          <Button title="Detect" onPress={onDetect} disabled={!imagePath || loading || !initReady} />
+          <TouchableOpacity style={styles.primaryButton} onPress={onPick} activeOpacity={0.8}>
+            <Text style={styles.buttonText}>🖼️ Gallery</Text>
+          </TouchableOpacity>
         </View>
-  <View style={styles.sp16} />
+
+        <View style={styles.sp16} />
+        
         {imagePath && (
-          <View style={[styles.preview, { width: previewWidth, height: previewHeight }] }>
-            <Image source={{ uri: imagePath.startsWith('/') ? 'file://' + imagePath : imagePath }} style={styles.previewImage} resizeMode="cover" />
+          <View style={[styles.preview, { width: previewWidth, height: previewHeight }]}>
+            <Image 
+              source={{ uri: imagePath.startsWith('/') ? 'file://' + imagePath : imagePath }} 
+              style={styles.previewImage} 
+              resizeMode="cover" 
+            />
             <Svg width={previewWidth} height={previewHeight} style={StyleSheet.absoluteFill}>
               {results.map((r, idx) => {
                 const { x1, y1, x2, y2, clsName, cnf } = r.box;
@@ -199,81 +205,160 @@ export default function MacroScanScreen() {
                 const ry = y1 * previewHeight;
                 const rw = (x2 - x1) * previewWidth;
                 const rh = (y2 - y1) * previewHeight;
+                const centerX = (x1 + x2) / 2 * previewWidth;
+                const centerY = (y1 + y2) / 2 * previewHeight;
+                
+                // Radial label positioning (avoid overlap with box)
+                const angle = (idx * 47) % 360; // distribute radially
+                const labelRadius = Math.max(rw, rh) * 0.6;
+                const labelX = centerX + Math.cos((angle * Math.PI) / 180) * labelRadius;
+                const labelY = centerY + Math.sin((angle * Math.PI) / 180) * labelRadius;
+
+                const hue = (r.box.cls * 47) % 360;
+                const color = `hsl(${hue}, 85%, 55%)`;
+                
                 return (
                   <React.Fragment key={idx}>
-                    <Rect x={rx} y={ry} width={rw} height={rh} stroke="#00FF88" strokeWidth={2} fill="transparent" />
-                    <SvgText x={rx + 4} y={ry + 16} fill="#00FF88" fontSize={12}>{`${clsName} ${(cnf*100).toFixed(1)}%`}</SvgText>
-                  </React.Fragment>
-                );
-              })}
-              {/* Mask overlays (downsampled heatmap) */}
-              {results.map((r, idx) => {
-                const mask = r.mask; // [height][width]
-                if (!mask || mask.length === 0 || mask[0].length === 0) return null;
-                const mh = mask.length;
-                const mw = mask[0].length;
-                // target blocks to keep under ~1500 rects per mask
-                const targetBlocksX = 45;
-                const blockX = Math.max(1, Math.floor(mw / targetBlocksX));
-                const blockY = Math.max(1, Math.floor(mh / (targetBlocksX * (mh / mw))));
-                const blocks: { x: number; y: number; w: number; h: number; v: number }[] = [];
-                for (let by = 0; by < mh; by += blockY) {
-                  for (let bx = 0; bx < mw; bx += blockX) {
-                    let sum = 0;
-                    let count = 0;
-                    for (let y = by; y < Math.min(by + blockY, mh); y++) {
-                      const row = mask[y];
-                      for (let x = bx; x < Math.min(bx + blockX, mw); x++) {
-                        sum += row[x];
-                        count++;
-                      }
-                    }
-                    const avg = count ? sum / count : 0;
-                    if (avg <= 0.05) continue; // skip near-zero
-                    const px = (bx / mw) * previewWidth;
-                    const py = (by / mh) * previewHeight;
-                    const pw = (Math.min(blockX, mw - bx) / mw) * previewWidth;
-                    const ph = (Math.min(blockY, mh - by) / mh) * previewHeight;
-                    blocks.push({ x: px, y: py, w: pw, h: ph, v: Math.max(0, Math.min(1, avg)) });
-                  }
-                }
-                // color per class hash
-                const hue = (r.box.cls * 47) % 360;
-                const fillBase = `hsl(${hue} 85% 55%)`;
-                return (
-                  <React.Fragment key={`m-${idx}`}>
-                    {blocks.map((b, i) => (
-                      <Rect
-                        key={`mr-${i}`}
-                        x={b.x}
-                        y={b.y}
-                        width={b.w}
-                        height={b.h}
-                        fill={fillBase}
-                        opacity={Math.min(0.5, 0.15 + b.v * 0.5)}
-                      />
-                    ))}
+                    {/* Bounding box */}
+                    <Rect 
+                      x={rx} 
+                      y={ry} 
+                      width={rw} 
+                      height={rh} 
+                      stroke={color} 
+                      strokeWidth={3} 
+                      fill="transparent" 
+                    />
+                    {/* Connection line from box center to label */}
+                    <Line
+                      x1={centerX}
+                      y1={centerY}
+                      x2={labelX}
+                      y2={labelY}
+                      stroke={color}
+                      strokeWidth={1.5}
+                      opacity={0.7}
+                    />
+                    {/* Label background circle */}
+                    <Circle
+                      cx={labelX}
+                      cy={labelY}
+                      r={4}
+                      fill={color}
+                    />
+                    {/* Label text */}
+                    <SvgText 
+                      x={labelX + 8} 
+                      y={labelY + 4} 
+                      fill={color} 
+                      fontSize={13}
+                      fontWeight="600"
+                    >
+                      {`${clsName} ${(cnf*100).toFixed(0)}%`}
+                    </SvgText>
                   </React.Fragment>
                 );
               })}
             </Svg>
           </View>
         )}
-  {loading && <ActivityIndicator style={styles.loading} />}
+
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007bff" />
+            <Text style={styles.loadingText}>Detecting objects...</Text>
+          </View>
+        )}
+
+        {!imagePath && !loading && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>📸</Text>
+            <Text style={styles.emptyText}>Capture or select an image to begin</Text>
+          </View>
+        )}
+
+        {results.length > 0 && !loading && (
+          <View style={styles.resultsCard}>
+            <Text style={styles.resultsTitle}>🎯 Detected Objects ({results.length})</Text>
+            {results.map((r, idx) => (
+              <View key={idx} style={styles.resultItem}>
+                <Text style={styles.resultLabel}>{r.box.clsName}</Text>
+                <Text style={styles.resultConf}>{(r.box.cnf * 100).toFixed(1)}%</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 16 },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 18, fontWeight: '600' },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  content: { padding: 16, paddingBottom: 40 },
+  title: { fontSize: 24, fontWeight: '700', color: '#1a1a1a', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#6c757d' },
   sp8: { height: 8 },
+  sp12: { height: 12 },
   sp12w: { width: 12 },
   sp16: { height: 16 },
-  preview: { position: 'relative' },
+  buttonRow: { flexDirection: 'row', alignItems: 'center' },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#007bff',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  preview: { 
+    position: 'relative', 
+    borderRadius: 12, 
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   previewImage: { width: '100%', height: '100%' },
-  loading: { marginTop: 12 },
+  loadingContainer: { 
+    alignItems: 'center', 
+    marginTop: 32,
+  },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#6c757d' },
+  emptyState: { 
+    alignItems: 'center', 
+    marginTop: 60,
+    paddingHorizontal: 32,
+  },
+  emptyIcon: { fontSize: 64, marginBottom: 16 },
+  emptyText: { fontSize: 16, color: '#adb5bd', textAlign: 'center' },
+  resultsCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 10,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  resultsTitle: { fontSize: 18, fontWeight: '600', color: '#1a1a1a', marginBottom: 12 },
+  resultItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f3f5',
+  },
+  resultLabel: { fontSize: 15, color: '#495057', flex: 1 },
+  resultConf: { fontSize: 15, fontWeight: '600', color: '#007bff' },
 });
