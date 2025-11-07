@@ -1,7 +1,7 @@
 export const MODEL_ASSET = 'models/humanpart_seg_float16.tflite';
 export const LABEL_ASSET: string | undefined = undefined;
 
-export const IS_TEST = false;
+export const IS_TEST = true;
 
 // Mock data for testing UI
 export const MOCK_RESULTS = [

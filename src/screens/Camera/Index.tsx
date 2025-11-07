@@ -186,12 +186,43 @@ export default function CameraScreen() {
                 const rw = (x2 - x1) * previewWidth;
                 const rh = (y2 - y1) * previewHeight;
                 const centerX = (x1 + x2) / 2 * previewWidth;
-                const centerY = (y1 + y2) / 2 * previewHeight;
+                const centerY = (x1 + y2) / 2 * previewHeight;
                 
-                const angle = (idx * 47) % 360;
-                const labelRadius = Math.max(rw, rh) * 0.6;
-                const labelX = centerX + Math.cos((angle * Math.PI) / 180) * labelRadius;
-                const labelY = centerY + Math.sin((angle * Math.PI) / 180) * labelRadius;
+                // Improved radial positioning algorithm
+                // Distribute labels evenly around the perimeter
+                const totalObjects = results.length;
+                const angleStep = 360 / totalObjects;
+                const baseAngle = idx * angleStep;
+                
+                // Determine best quadrant based on object position
+                const isLeft = centerX < previewWidth / 2;
+                const isTop = centerY < previewHeight / 2;
+                
+                // Adjust angle to push labels toward edges
+                let adjustedAngle = baseAngle;
+                if (isLeft && isTop) {
+                  adjustedAngle = baseAngle - 45; // Top-left, prefer left/top edge
+                } else if (!isLeft && isTop) {
+                  adjustedAngle = baseAngle + 45; // Top-right, prefer right/top edge
+                } else if (isLeft && !isTop) {
+                  adjustedAngle = baseAngle + 135; // Bottom-left, prefer left/bottom edge
+                } else {
+                  adjustedAngle = baseAngle + 45; // Bottom-right, prefer right/bottom edge
+                }
+                
+                // Calculate distance: push labels further out from the object
+                const minDistance = Math.max(rw, rh) * 0.8;
+                const labelRadius = minDistance + 20; // Extra padding to avoid overlap
+                
+                // Calculate label position
+                const angleRad = (adjustedAngle * Math.PI) / 180;
+                const labelX = centerX + Math.cos(angleRad) * labelRadius;
+                const labelY = centerY + Math.sin(angleRad) * labelRadius;
+                
+                // Clamp to stay within bounds with padding
+                const padding = 60; // Space for text
+                const clampedLabelX = Math.max(padding, Math.min(previewWidth - padding, labelX));
+                const clampedLabelY = Math.max(20, Math.min(previewHeight - 20, labelY));
 
                 const hue = (r.box.cls * 47) % 360;
                 const color = `hsl(${hue}, 85%, 55%)`;
@@ -221,21 +252,21 @@ export default function CameraScreen() {
                         </SvgText>
                       </>
                     ) : (
-                      /* Line/Arrow visualization mode */
+                      /* Line/Arrow visualization mode with improved positioning */
                       <>
                         <Line
                           x1={centerX}
                           y1={centerY}
-                          x2={labelX}
-                          y2={labelY}
+                          x2={clampedLabelX}
+                          y2={clampedLabelY}
                           stroke={color}
                           strokeWidth={2}
                           opacity={0.8}
                         />
-                        <Circle cx={labelX} cy={labelY} r={5} fill={color} />
+                        <Circle cx={clampedLabelX} cy={clampedLabelY} r={5} fill={color} />
                         <SvgText 
-                          x={labelX + 10} 
-                          y={labelY + 5} 
+                          x={clampedLabelX + 10} 
+                          y={clampedLabelY + 5} 
                           fill={color} 
                           fontSize={13}
                           fontWeight="600"
