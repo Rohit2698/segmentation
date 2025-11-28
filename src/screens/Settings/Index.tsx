@@ -1,43 +1,151 @@
-import React, { useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import RNFS from 'react-native-fs';
+import { request, PERMISSIONS, RESULTS, openSettings } from 'react-native-permissions';
+import { useModelStore } from '../../store/modelStore';
 
-type ModelPackage = {
-  id: string;
-  name: string;
-  file: string;
-  size: string;
-  installed: boolean;
-};
+async function requestDownloadPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
 
-const MODEL_PACKAGES: ModelPackage[] = [
-  { id: '3', name: 'Human Part Segmentation', file: 'humanpart_seg_float16.tflite', size: '24.1 MB', installed: true },
-];
+  const api =
+    typeof Platform.Version === 'number'
+      ? Platform.Version
+      : parseInt(String(Platform.Version), 10);
+  const perm =
+    api >= 33
+      ? PERMISSIONS.ANDROID.READ_MEDIA_IMAGES
+      : PERMISSIONS.ANDROID.WRITE_EXTERNAL_STORAGE;
+
+  try {
+    const result = await request(perm);
+    if (result === RESULTS.GRANTED || result === RESULTS.LIMITED) {
+      return true;
+    }
+    if (result === RESULTS.BLOCKED) {
+      Alert.alert(
+        'Storage permission required',
+        'Please enable storage permission in settings to download models.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => openSettings() },
+        ]
+      );
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 export default function SettingsScreen() {
-  const [packages, setPackages] = useState<ModelPackage[]>(MODEL_PACKAGES);
+  const {
+    packages,
+    activeModelId,
+    setActiveModel,
+    markInstalled,
+    ensureDownloadDir,
+    syncFromDisk,
+  } = useModelStore();
 
-  const handleDownload = (_id: string) => {
-    Alert.alert('Download Model', 'Model download functionality will be implemented here.');
-    // TODO: Implement actual download using react-native-fs
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    syncFromDisk().catch(() => {
+      // ignore
+    });
+  }, [syncFromDisk]);
+
+  const handleDownload = async (id: string) => {
+    const pkg = packages.find((p) => p.id === id);
+    if (!pkg || !pkg.downloadUrl) {
+      Alert.alert('Not downloadable', 'This model is not available for download.');
+      return;
+    }
+
+    const hasPerm = await requestDownloadPermission();
+    if (!hasPerm) return;
+
+    try {
+      setDownloadingId(id);
+      await ensureDownloadDir();
+
+      const destPath = pkg.storagePath;
+      const result = await RNFS.downloadFile({
+        fromUrl: pkg.downloadUrl,
+        toFile: destPath,
+      }).promise;
+
+      if (result.statusCode && result.statusCode >= 200 && result.statusCode < 300) {
+        markInstalled(id, true);
+        Alert.alert(
+          'Model downloaded',
+          'The model has been downloaded. You can now activate it for scanning.'
+        );
+      } else {
+        throw new Error(`Download failed with status ${result.statusCode}`);
+      }
+    } catch (e: any) {
+      console.warn('Model download failed', e);
+      Alert.alert('Download failed', 'Unable to download model. Please try again.');
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const handleDelete = (id: string) => {
-    Alert.alert(
-      'Delete Model',
-      'Are you sure you want to delete this model?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            setPackages((prev) =>
-              prev.map((p) => (p.id === id ? { ...p, installed: false } : p))
-            );
-          },
+    const pkg = packages.find((p) => p.id === id);
+    if (!pkg) return;
+    if (pkg.origin === 'bundled') {
+      Alert.alert('Cannot delete bundled model', 'Bundled models are part of the app package.');
+      return;
+    }
+
+    Alert.alert('Delete Model', 'Are you sure you want to delete this model?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setDeletingId(id);
+            const exists = await RNFS.exists(pkg.storagePath);
+            if (exists) {
+              await RNFS.unlink(pkg.storagePath);
+            }
+            markInstalled(id, false);
+          } catch (e) {
+            console.warn('Failed to delete model', e);
+            Alert.alert('Delete failed', 'Could not delete model file from storage.');
+          } finally {
+            setDeletingId(null);
+          }
         },
-      ]
-    );
+      },
+    ]);
+  };
+
+  const handleActivate = (id: string) => {
+    const pkg = packages.find((p) => p.id === id);
+    if (!pkg || !pkg.installed) {
+      Alert.alert('Not installed', 'Please download/install this model first.');
+      return;
+    }
+    setActiveModel(id);
+    Alert.alert('Active model updated', `${pkg.name} will be used for scanning.`);
   };
 
   return (
@@ -52,22 +160,47 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Installed Models</Text>
           {packages
             .filter((p) => p.installed)
-            .map((pkg) => (
-              <View key={pkg.id} style={styles.packageCard}>
-                <View style={styles.packageInfo}>
-                  <Text style={styles.packageName}>{pkg.name}</Text>
-                  <Text style={styles.packageMeta}>
-                    {pkg.file} • {pkg.size}
-                  </Text>
+            .map((pkg) => {
+              const isActive = pkg.id === activeModelId;
+              const isDeleting = deletingId === pkg.id;
+              return (
+                <View key={pkg.id} style={styles.packageCard}>
+                  <View style={styles.packageInfo}>
+                    <View style={styles.packageHeader}>
+                      <Text style={styles.packageName}>{pkg.name}</Text>
+                      {isActive && <Text style={styles.activeBadge}>Active</Text>}
+                    </View>
+                    <Text style={styles.packageMeta}>
+                      {pkg.fileName} • {pkg.size} •{' '}
+                      {pkg.origin === 'bundled' ? 'Bundled' : 'Downloaded'}
+                    </Text>
+                  </View>
+                  <View style={styles.actionRow}>
+                    {!isActive && (
+                      <TouchableOpacity
+                        style={[styles.button, styles.activateButton]}
+                        onPress={() => handleActivate(pkg.id)}
+                      >
+                        <Text style={styles.activateButtonText}>Use</Text>
+                      </TouchableOpacity>
+                    )}
+                    {pkg.origin === 'download' && (
+                      <TouchableOpacity
+                        style={[styles.button, styles.deleteButton]}
+                        onPress={() => handleDelete(pkg.id)}
+                        disabled={isDeleting}
+                      >
+                        {isDeleting ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.deleteButtonText}>Delete</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-                <TouchableOpacity
-                  style={[styles.button, styles.deleteButton]}
-                  onPress={() => handleDelete(pkg.id)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+              );
+            })}
           {packages.filter((p) => p.installed).length === 0 && (
             <Text style={styles.emptyText}>No installed models</Text>
           )}
@@ -77,22 +210,34 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Available for Download</Text>
           {packages
             .filter((p) => !p.installed)
-            .map((pkg) => (
-              <View key={pkg.id} style={styles.packageCard}>
-                <View style={styles.packageInfo}>
-                  <Text style={styles.packageName}>{pkg.name}</Text>
-                  <Text style={styles.packageMeta}>
-                    {pkg.file} • {pkg.size}
-                  </Text>
+            .map((pkg) => {
+              const isDownloading = downloadingId === pkg.id;
+              return (
+                <View key={pkg.id} style={styles.packageCard}>
+                  <View style={styles.packageInfo}>
+                    <Text style={styles.packageName}>{pkg.name}</Text>
+                    <Text style={styles.packageMeta}>
+                      {pkg.fileName} • {pkg.size}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      styles.downloadButton,
+                      isDownloading && styles.buttonDisabled,
+                    ]}
+                    onPress={() => handleDownload(pkg.id)}
+                    disabled={isDownloading}
+                  >
+                    {isDownloading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.downloadButtonText}>Download</Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={[styles.button, styles.downloadButton]}
-                  onPress={() => handleDownload(pkg.id)}
-                >
-                  <Text style={styles.downloadButtonText}>Download</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+              );
+            })}
           {packages.filter((p) => !p.installed).length === 0 && (
             <Text style={styles.emptyText}>All models installed</Text>
           )}
@@ -127,6 +272,21 @@ const styles = StyleSheet.create({
   packageInfo: { flex: 1, marginRight: 12 },
   packageName: { fontSize: 16, fontWeight: '600', color: '#1a1a1a', marginBottom: 4 },
   packageMeta: { fontSize: 12, color: '#6c757d', fontFamily: 'monospace' },
+  packageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  activeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#19875415',
+    color: '#198754',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   button: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -138,5 +298,20 @@ const styles = StyleSheet.create({
   downloadButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   deleteButton: { backgroundColor: '#dc3545' },
   deleteButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  emptyText: { fontSize: 14, color: '#adb5bd', fontStyle: 'italic', textAlign: 'center', marginTop: 8 },
+  activateButton: { backgroundColor: '#198754', marginRight: 8 },
+  activateButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  buttonDisabled: { opacity: 0.6 },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#adb5bd',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
+  },
 });
+
+

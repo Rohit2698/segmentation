@@ -6,6 +6,7 @@ import { useDetectionStore } from '../../store/detectionStore';
 import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import RNFS from 'react-native-fs';
 import { IS_TEST, LABEL_ASSET, MOCK_RESULTS, MODEL_ASSET } from './util';
+import { useModelStore } from '../../store/modelStore';
 
 
 export default function CameraScreen() {
@@ -13,6 +14,7 @@ export default function CameraScreen() {
   const camera = useRef<Camera>(null);
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
+  const { activeModelId, packages } = useModelStore();
   
   const [isActive, setIsActive] = useState(true);
   const [initReady, setInitReady] = useState(false);
@@ -26,15 +28,19 @@ export default function CameraScreen() {
   const previewHeight = height * 0.7;
   const previewWidth = (previewHeight * 3) / 4;
 
+  const activeModel = packages.find((p) => p.id === activeModelId) ?? null;
+
   useEffect(() => {
     (async () => {
       try {
-        const ok = await initialize(MODEL_ASSET, LABEL_ASSET);
+        const modelPath = activeModel?.storagePath ?? MODEL_ASSET;
+        setInitReady(false);
+        const ok = await initialize(modelPath, LABEL_ASSET);
         setInitReady(!!ok);
         if (!ok) {
           Alert.alert(
             'Model not initialized',
-            'Could not initialize the model. Ensure the file exists at android/app/src/main/assets/models/yolo.tflite.'
+            'Could not initialize the model. Ensure the selected model file exists.'
           );
         }
       } catch (e: any) {
@@ -42,11 +48,11 @@ export default function CameraScreen() {
         setInitReady(false);
         Alert.alert(
           'Initialization error',
-          'Failed to initialize the model. Make sure your .tflite is placed under android/app/src/main/assets/models and rebuild the app.'
+          'Failed to initialize the model. Please check that the model file is present and try again.'
         );
       }
     })();
-  }, []);
+  }, [activeModelId, activeModel?.storagePath]);
 
   useEffect(() => {
     if (!hasPermission) {

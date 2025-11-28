@@ -17,6 +17,7 @@ import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.nio.ByteBuffer
+import java.io.File
 
 class InstanceSegmentation(
     context: Context,
@@ -45,7 +46,14 @@ class InstanceSegmentation(
         val options = Interpreter.Options()
         options.setNumThreads(4)
 
-        val model = FileUtil.loadMappedFile(context, modelPath)
+        val model = if (modelPath.startsWith("/") || modelPath.startsWith("file:")) {
+            // Absolute or file:// path - load directly from file system (downloaded model)
+            val cleanPath = modelPath.removePrefix("file://")
+            FileUtil.loadMappedFile(File(cleanPath))
+        } else {
+            // Asset-relative path bundled inside the APK
+            FileUtil.loadMappedFile(context, modelPath)
+        }
         interpreter = Interpreter(model, options)
 
         labels.addAll(extractNamesFromMetadata(model))
