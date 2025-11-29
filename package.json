@@ -7,10 +7,15 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "apk": "node scripts/build-android-apk.js",
+    "apk:release": "node scripts/build-android-apk.js --variant=release",
+    "apk:debug": "node scripts/build-android-apk.js --variant=debug",
+    "aab": "node scripts/build-android-apk.js --variant=release --aab"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.82.1",
+    "@react-navigation/bottom-tabs": "^7.8.2",
     "@react-navigation/native": "^7.0.0",
     "@react-navigation/native-stack": "^7.0.0",
     "react": "19.1.1",
@@ -22,6 +27,8 @@
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.1.0",
     "react-native-svg": "^15.2.0",
+    "react-native-vision-camera": "^4.7.2",
+    "react-native-vector-icons": "^10.2.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
@@ -42,6 +49,7 @@
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.1.1",
+    "@types/react-native-vector-icons": "^6.4.18",
     "typescript": "^5.8.3"
   },
   "engines": {

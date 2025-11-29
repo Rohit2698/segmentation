@@ -122,3 +122,6 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-metadata:0.4.4")
 }
+
+// Copy vector icon fonts into the Android app package
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
