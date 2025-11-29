@@ -15,7 +15,8 @@ export type ModelPackage = {
   downloadUrl?: string;
 };
 
-// Dedicated subfolder for downloaded models inside app sandbox.
+// Dedicated subfolder for downloaded models inside app sandbox (private app storage).
+// This avoids Android 10+ scoped storage issues when reading from public Downloads.
 export const MODEL_DOWNLOAD_DIR = `${RNFS.DocumentDirectoryPath}/models`;
 
 type ModelState = {

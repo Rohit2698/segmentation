@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
@@ -34,6 +35,28 @@ export default function CameraScreen() {
     (async () => {
       try {
         const modelPath = activeModel?.storagePath ?? MODEL_ASSET;
+
+        // For downloaded models, double‑check that the file actually exists
+        if (activeModel?.origin === 'download') {
+          const exists = await RNFS.exists(modelPath);
+          if (!exists) {
+            console.warn('Active downloaded model file not found at', modelPath);
+            setInitReady(false);
+            Alert.alert(
+              'Model file missing',
+              'The downloaded model file could not be found. Please re-download it from Settings.'
+            );
+            return;
+          }
+        }
+
+        console.log(
+          '[Camera] Initializing model',
+          modelPath,
+          'origin =',
+          activeModel?.origin ?? 'bundled'
+        );
+
         setInitReady(false);
         const ok = await initialize(modelPath, LABEL_ASSET);
         setInitReady(!!ok);

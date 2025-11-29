@@ -17,7 +17,10 @@ import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.nio.ByteBuffer
+import java.nio.MappedByteBuffer
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
 
 class InstanceSegmentation(
     context: Context,
@@ -36,6 +39,7 @@ class InstanceSegmentation(
     private var xPoints = 0
     private var yPoints = 0
     private var masksNum = 0
+    private var hasMaskOutput = true
 
     private val imageProcessor = ImageProcessor.Builder()
         .add(NormalizeOp(INPUT_MEAN, INPUT_STANDARD_DEVIATION))
@@ -46,14 +50,9 @@ class InstanceSegmentation(
         val options = Interpreter.Options()
         options.setNumThreads(4)
 
-        val model = if (modelPath.startsWith("/") || modelPath.startsWith("file:")) {
-            // Absolute or file:// path - load directly from file system (downloaded model)
-            val cleanPath = modelPath.removePrefix("file://")
-            FileUtil.loadMappedFile(File(cleanPath))
-        } else {
-            // Asset-relative path bundled inside the APK
-            FileUtil.loadMappedFile(context, modelPath)
-        }
+        // Support both bundled asset paths (e.g. "models/xxx.tflite") and absolute filesystem paths
+        // (e.g. /data/user/0/.../files/models/xxx.tflite).
+        val model = loadModelFile(context, modelPath)
         interpreter = Interpreter(model, options)
 
         labels.addAll(extractNamesFromMetadata(model))
@@ -67,8 +66,9 @@ class InstanceSegmentation(
         }
 
         val inputShape = interpreter.getInputTensor(0)?.shape()
-        val outputShape0 = interpreter.getOutputTensor(0)?.shape()
-        val outputShape1 = interpreter.getOutputTensor(1)?.shape()
+        val outputCount = interpreter.outputTensorCount
+        val outputShape0 = if (outputCount >= 1) interpreter.getOutputTensor(0)?.shape() else null
+        val outputShape1 = if (outputCount >= 2) interpreter.getOutputTensor(1)?.shape() else null
 
         if (inputShape != null) {
             tensorWidth = inputShape[1]
@@ -96,6 +96,13 @@ class InstanceSegmentation(
                 yPoints = outputShape1[2]
                 masksNum = outputShape1[3]
             }
+            hasMaskOutput = true
+        } else {
+            // Models with a single output tensor (e.g. detection-only) – no mask prototype head.
+            masksNum = 0
+            xPoints = 0
+            yPoints = 0
+            hasMaskOutput = false
         }
     }
 
@@ -106,7 +113,7 @@ class InstanceSegmentation(
     fun invoke(frame: Bitmap) {
         if (tensorWidth == 0 || tensorHeight == 0
             || numChannel == 0 || numElements == 0
-            || xPoints == 0 || yPoints == 0 || masksNum == 0) {
+            || (hasMaskOutput && (xPoints == 0 || yPoints == 0 || masksNum == 0))) {
             instanceSegmentationListener.onError("Interpreter not initialized properly")
             return
         }
@@ -120,21 +127,31 @@ class InstanceSegmentation(
             OUTPUT_IMAGE_TYPE
         )
 
-        val maskProtoBuffer = TensorBuffer.createFixedSize(
-            intArrayOf(1, xPoints, yPoints, masksNum),
-            OUTPUT_IMAGE_TYPE
-        )
+        var maskProtoBuffer: TensorBuffer? = null
+        var outputBuffer: Map<Int, Any>? = null
 
-        val outputBuffer = mapOf<Int, Any>(
-            0 to coordinatesBuffer.buffer.rewind(),
-            1 to maskProtoBuffer.buffer.rewind()
-        )
+        if (hasMaskOutput) {
+            maskProtoBuffer = TensorBuffer.createFixedSize(
+                intArrayOf(1, xPoints, yPoints, masksNum),
+                OUTPUT_IMAGE_TYPE
+            )
+
+            outputBuffer = mapOf(
+                0 to coordinatesBuffer.buffer.rewind(),
+                1 to maskProtoBuffer.buffer.rewind()
+            )
+        }
 
         preProcessTime = SystemClock.uptimeMillis() - preProcessTime
 
         var interfaceTime = SystemClock.uptimeMillis()
 
-        interpreter.runForMultipleInputsOutputs(imageBuffer, outputBuffer)
+        if (hasMaskOutput && outputBuffer != null) {
+            interpreter.runForMultipleInputsOutputs(imageBuffer, outputBuffer)
+        } else {
+            // Single-output models (detection-only)
+            interpreter.run(imageBuffer, coordinatesBuffer.buffer.rewind())
+        }
 
         interfaceTime = SystemClock.uptimeMillis() - interfaceTime
 
@@ -145,13 +162,22 @@ class InstanceSegmentation(
             return
         }
 
-        val maskProto = reshapeMaskOutput(maskProtoBuffer.floatArray)
-
-        val segmentationResults = bestBoxes.map {
-            SegmentationResult(
-                box = it,
-                mask = getFinalMask(frame.width, frame.height, it, maskProto)
-            )
+        val segmentationResults = if (hasMaskOutput && maskProtoBuffer != null) {
+            val maskProto = reshapeMaskOutput(maskProtoBuffer.floatArray)
+            bestBoxes.map {
+                SegmentationResult(
+                    box = it,
+                    mask = getFinalMask(frame.width, frame.height, it, maskProto)
+                )
+            }
+        } else {
+            // Detection-only: no masks, return empty masks
+            bestBoxes.map {
+                SegmentationResult(
+                    box = it,
+                    mask = Array(0) { FloatArray(0) }
+                )
+            }
         }
 
         postProcessTime = SystemClock.uptimeMillis() - postProcessTime
@@ -319,5 +345,27 @@ class InstanceSegmentation(
         private val OUTPUT_IMAGE_TYPE = DataType.FLOAT32
         private const val CONFIDENCE_THRESHOLD = 0.3F
         private const val IOU_THRESHOLD = 0.5F
+
+        private fun loadModelFile(context: Context, modelPath: String): MappedByteBuffer {
+            val cleanPath = if (modelPath.startsWith("file://")) {
+                modelPath.removePrefix("file://")
+            } else {
+                modelPath
+            }
+
+            return if (cleanPath.startsWith("/")) {
+                // Treat as real filesystem path (downloaded model)
+                val file = File(cleanPath)
+                if (!file.exists()) {
+                    throw java.io.FileNotFoundException("Model file not found at $cleanPath")
+                }
+                val raf = RandomAccessFile(file, "r")
+                val channel: FileChannel = raf.channel
+                channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            } else {
+                // Treat as bundled asset path
+                FileUtil.loadMappedFile(context, cleanPath)
+            }
+        }
     }
 }

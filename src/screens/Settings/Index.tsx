@@ -84,12 +84,24 @@ export default function SettingsScreen() {
       await ensureDownloadDir();
 
       const destPath = pkg.storagePath;
+      console.log('[Settings] DocumentDirectoryPath =', RNFS.DocumentDirectoryPath);
+      console.log('[Settings] Downloading model to', destPath);
+
       const result = await RNFS.downloadFile({
         fromUrl: pkg.downloadUrl,
         toFile: destPath,
       }).promise;
 
       if (result.statusCode && result.statusCode >= 200 && result.statusCode < 300) {
+        const existsOnDisk = await RNFS.exists(destPath);
+        console.log('[Settings] Model exists after download?', existsOnDisk);
+        if (!existsOnDisk) {
+          Alert.alert(
+            'Download failed',
+            'The model download completed but the file was not found on disk. Please try again.'
+          );
+          return;
+        }
         markInstalled(id, true);
         Alert.alert(
           'Model downloaded',
